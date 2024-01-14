@@ -1,0 +1,175 @@
+---
+title: 'API Mocking Using PRISM Mock API Server and Docker'
+date: '2024-12-01'
+lastmod: '2024-12-01'
+tags: ['docker', 'prism', 'api', 'devops']
+draft: false
+summary: 'Build your own mock API server container image'
+---
+
+Modern web and mobile applications involve a lot of moving parts. Nowadays, applications are not monolithic as there will definitely be a separate backend and frontend components. In order for the team to work efficiently, we need a way for the break the tight coupling between the two separate developers as more often than not, front end developers will have to wait until back end developers complete their API.
+
+There are several ways to achieve this, but in this short article, I will introduce a way to easily setup a mock API server that only takes the open API specification file as the input and it will create endpoints based on it.
+
+## PRISM Mock API Server
+
+What can it do?
+
+1. Generate a mock API Server based on the Open API Spec documentation without writing any server code.
+2. Generate dynamic response data based on the type of the field.
+3. Force any request to include authentication headers (just for mocking purposes).
+4. Validate input and output.
+5. Mocking callbacks.
+
+## How to set it up?
+
+There are two ways to get Prism up and running which is by using their cloud hosted instance or by installing Prism and setting it up in your local environment. In this article, I will explore how to do it manually.
+
+- Install prism from NPM:
+
+> npm install -g @stoplight/prism-cli
+
+- Create a new folder named api.
+- Create a spec file named test-api.yaml and place it in the newly created api folder:
+```yaml
+openapi: 3.0.1
+info:
+  title: anisAPI
+  version: '1.0'
+paths:
+  '/getName/{userId}':
+    parameters:
+      - schema:
+          type: integer
+        name: userId
+        in: path
+        required: true
+        description: Id of an existing user.
+    get:
+      summary: Get User Info by User ID
+      tags: []
+      responses:
+        '200':
+          description: User Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User Not Found
+      operationId: get-users-userId
+      description: Retrieve the information of the user with the matching user ID.
+  '/getName':
+    parameters:
+      - schema:
+          type: string
+        name: emailId
+        in: query
+        required: true
+        description: Email of an existing user.
+    get:
+      summary: Get User Info by User Email
+      tags: []
+      responses:
+        '200':
+          description: User Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User Not Found
+      operationId: get-users-email
+      description: Retrieve the information of the user with the matching user email.
+components:
+  schemas:
+    User:
+      title: User
+      type: object
+      description: ''
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the given user.
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+        - id
+        - firstName
+        - lastName
+        - email 
+```
+
+- Test Prism Mock API directly:
+> prism mock -d api/test-api.yaml
+
+- Once the server has started you can verify the response in the browser:
+![Alt text](/static/images/mock-api/mock-api-1.png "title")
+
+- Now we move on to the next step to host the mock server in a Docker container.
+- Create package.json file:
+```json
+{
+  "name": "testapi-spec",
+  "version": "1.0.0",
+  "description": "OpenAPI specification for TestAPI",
+  "author": "Mohd Anis",
+  "license": "MIT",
+  "scripts": {
+    "premock": "yarn bundle",
+    "mock": "prism mock ./bin/test-api.yaml -h 0.0.0.0",
+    "bundle": "swagger-cli bundle api/test-api.yaml -o ./bin/test-api.yaml -t yaml",
+    "prelint": "yarn bundle",
+    "lint": "spectral lint ./bin/test-api.yaml --ignore-unknown-format"
+  },
+  "dependencies": {
+    "@openapitools/openapi-generator-cli": "^1.0.15-4.3.1",
+    "@stoplight/prism-cli": "^4.0.0",
+    "@stoplight/spectral": "^5.5.0",
+    "swagger-cli": "^4.0.4"
+  }  
+}
+```
+- Run npm install to install dependencies and generate package-lock.json.
+> npm install
+- Create Dockerfile:
+```Dockerfile
+FROM node:14.15.4
+
+
+WORKDIR /app
+
+
+COPY package.json package.json
+COPY package-lock.json package-lock.json
+
+
+RUN npm ci --production
+COPY . .
+CMD [ "npm", "run", "mock" ]
+```
+- Create .dockerignore:
+> node_modules
+
+- Build your docker image:
+> docker build --tag prism-mock-api-test .
+
+- Run your new docker image:
+> docker run -p 4010:4010 prism-mock-api-test
+
+- You will be greeted with this:
+![Alt text](/static/images/mock-api/mock-api-2.png "title")
+
+- Test it:
+![Alt text](/static/images/mock-api/mock-api-3.png "title")
+
+- Congratulations Prism mock api server is running inside a Docker container.
+
+## Next Steps
+
+So now you have a mock API server running inside a container, how do you move forward? Well you can host it in the cloud lets say Azure App Service with Azure Container Instances and integrate it with a Github Action workflow. This will let you automatically deploy and share the mock API among team members without them having to setup their own local Prism mock API server.
